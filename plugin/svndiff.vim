@@ -380,6 +380,11 @@ function Svndiff(...)
 		return
 	endif
 
+  if cmd == 'update'
+		let s:is_active[fname] = 1
+		call s:Svndiff_update()
+  endif
+
 	if cmd == 'clear'
 		let s:changedtick[fname] = 0
 		if exists("s:is_active[fname]") 
