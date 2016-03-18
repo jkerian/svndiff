@@ -33,7 +33,7 @@
 " - Perforce / p4
 " - Subversion
 "
-" The type of RCS will be detected when first issuing a svndiff command on 
+" The type of RCS will be detected when first issuing a svndiff command on
 " the file.
 "
 " The following symbols and syntax highlight groups are used for the signs:
@@ -43,7 +43,7 @@
 "   ! DiffChange: Lines which are changed from the original. (default=cyan)
 "
 "   < DiffDel:    Applied to the lines directly above and below a deleted block
-"                 (default=magenta) 
+"                 (default=magenta)
 "
 " Usage
 " -----
@@ -56,14 +56,14 @@
 "
 " The function takes one argument specifying an additional action to perform:
 "
-"   "prev"  : jump to the previous different block 
+"   "prev"  : jump to the previous different block
 "   "next"  : jump to the next different block
 "   "clear" : clean up all signs
 "
 " You might want to map some keys to run the Svndiff function. For
 " example, add to your .vimrc:
 "
-"   noremap <F3> :call Svndiff("prev")<CR> 
+"   noremap <F3> :call Svndiff("prev")<CR>
 "   noremap <F4> :call Svndiff("next")<CR>
 "   noremap <F5> :call Svndiff("clear")<CR>
 "
@@ -72,15 +72,15 @@
 " -------------
 "
 " The following configuration variables are availabe:
-" 
+"
 " * g:svndiff_autoupdate
 "
 "   If this variable is defined, svndiff will automatically update the signs
 "   when the user stops typing for a short while, and when leaving insert
 "   mode. This might slow things down on large files, so use with caution.
 "   The vim variable 'updatetime' can be used to set the auto-update interval,
-"   but note that changing this variable other effects as well. (refer to the 
-"   vim docs for more info) 
+"   but note that changing this variable other effects as well. (refer to the
+"   vim docs for more info)
 "   To use, add to your .vimrc:
 "
 "   let g:svndiff_autoupdate = 1
@@ -138,7 +138,7 @@
 " 4.2 2009-07-31  Added support for proper handling of non-unix file formats
 "                 which use different newline conventions (dos, mac)
 "
-" 4.3 2010-05-08  Added support for Mercurial, fixed git support (thanks 
+" 4.3 2010-05-08  Added support for Mercurial, fixed git support (thanks
 "                 Frankovskyi Bogdan)
 "
 " 4.4 2011-03-30  Added support for perforce/p4 (thanks, Timandahaf)
@@ -146,7 +146,7 @@
 " 4.5 2011-10-09  Bugfix when trying to use svndiff in a new fileless buffer
 "                 (Frankovskyi Bogdan)
 "
-" 4.6 2012-06-02  Added support for the Fossil SCM (Andrea Federico 
+" 4.6 2012-06-02  Added support for the Fossil SCM (Andrea Federico
 "                 Grisotto)
 "
 " 4.7 2013-04-25  Fixed git diff when not in top git directory
@@ -170,7 +170,7 @@ let s:newline = {}        " dict with newline character of each buffer
 
 " Commands to execute to get current file contents in various rcs systems
 
-let s:rcs_cmd_svn = "svn cat '%s'"
+let s:rcs_cmd_svn = "svn cat %s"
 let s:rcs_cmd_git = "git cat-file -p HEAD:$(git ls-files --full-name '%s')"
 let s:rcs_cmd_hg  = "hg cat '%s'"
 let s:rcs_cmd_cvs = "cvs -q update -p '%s'"
@@ -184,22 +184,23 @@ let s:rcs_cmd_fossil = "fossil finfo -p '%s'"
 function! s:Svndiff_update(...)
 
   let fname = bufname("%")
+  let bufnum = bufnr("%")
 
   if ! exists("s:is_active[fname]")
     return 0
   end
 
   " Guess RCS type for this file
-  
-  if ! has_key(s:rcs_type, fname) 
+
+  if ! has_key(s:rcs_type, fname)
 
     " skip new files created in vim buffer
-    
+
     if ! filereadable(fname)
       return 0
     end
-      
-    let info = system("LANG=C svn info " . fname)
+
+    let info = system("svn info " . fname)
     if match(info, "Path") != -1
       let s:rcs_type[fname] = "svn"
       let s:rcs_cmd[fname] = s:rcs_cmd_svn
@@ -237,16 +238,16 @@ function! s:Svndiff_update(...)
   end
 
   " Could not detect RCS type, print message and exit
-  
-  if ! has_key(s:rcs_type, fname) 
+
+  if ! has_key(s:rcs_type, fname)
     echom "Svndiff: Warning, file " . fname . " is not managed by a supported versioning system!"
     unlet s:is_active[fname]
     return
   end
 
   " Find newline characters for the current file
-  
-  if ! has_key(s:newline, fname) 
+
+  if ! has_key(s:newline, fname)
     let l:ff_to_newline = { "dos": "\r\n", "unix": "\n", "mac": "\r" }
     let s:newline[fname] = l:ff_to_newline[&l:fileformat]
     echom s:newline[fname]
@@ -261,11 +262,26 @@ function! s:Svndiff_update(...)
   let s:changedtick[fname] = b:changedtick
 
   " The diff has changed since the last time, so we need to update the signs.
-  " This is where the magic happens: pipe the current buffer contents to a
-  " shell command calculating the diff in a friendly parsable format.
+  " This is where the magic happens: write the current buffer contents and svn
+  " base contents to temp files and run a shell command to calculate the diff
+  " in a friendly parsable format.
 
-  let contents = join(getbufline("%", 1, "$"), s:newline[fname])
-  let diff = system("diff -U0 <(" . substitute(s:rcs_cmd[fname], "%s", fname, "") . ") <(cat;echo)", contents)
+  " Write contents to diff to temp files
+  let tmpfile1 = substitute(tempname(), "\\", "/", "g")
+  let tmpfile2 = substitute(tempname(), "\\", "/", "g")
+  exec "redir > " . tmpfile1|silent echo system(substitute(s:rcs_cmd[fname], "%s", substitute(fname, "\\", "/", "g"), ""))|redir END
+  exec "redir > " . tmpfile2|silent echo join(getbufline("%", 1, "$"), s:newline[fname])|redir END
+  let diff = system("diff -U0 " . tmpfile1 . " " . tmpfile2)
+
+  " Cleanup temp files
+  let delStatus=delete(tmpfile1)
+  if(delStatus != 0)
+    echo "Failed to delete " . tmpfile1)
+  endif
+  let delStatus=delete(tmpfile2)
+  if(delStatus != 0)
+    echo "Failed to delete " . tmpfile1)
+  endif
 
   " clear the old signs
 
@@ -275,17 +291,16 @@ function! s:Svndiff_update(...)
   " removed lines
 
   for line in split(diff, '\n')
-    
     let part = matchlist(line, '@@ -\([0-9]*\),*\([0-9]*\) +\([0-9]*\),*\([0-9]*\) @@')
 
     if ! empty(part)
-      let old_from  = part[1]
+      let old_from  = part[1] - 1  " Temp files include a blank first line.  -1 to compensate.
       let old_count = part[2] == '' ? 1 : part[2]
-      let new_from  = part[3]
+      let new_from  = part[3] - 1  " Temp files include a blank first line.  -1 to compensate.
       let new_count = part[4] == '' ? 1 : part[4]
 
       " Figure out if text was added, removed or changed.
-      
+
       if old_count == 0
         let from  = new_from
         let to    = new_from + new_count - 1
@@ -293,7 +308,7 @@ function! s:Svndiff_update(...)
         let info  = new_count . " lines added"
       elseif new_count == 0
         let from  = new_from
-        let to    = new_from 
+        let to    = new_from
         let name  = 'svndiff_delete'
         let info  = old_count . " lines deleted"
         if ! exists("g:svndiff_one_sign_delete")
@@ -306,15 +321,15 @@ function! s:Svndiff_update(...)
         let info  = new_count . " lines changed"
       endif
 
-      let id = from + s:sign_base 
+      let id = from + s:sign_base
       let s:diff_blocks[fname] += [{ 'id': id, 'info': info }]
 
-      " Add signs to mark the changed lines 
-      
+      " Add signs to mark the changed lines
+
       let line = from
       while line <= to
         let id = line + s:sign_base
-        exec 'sign place ' . id . ' line=' . line . ' name=' . name . ' file=' . fname
+        exec 'sign place ' . id . ' line=' . line . ' name=' . name . ' buffer=' . bufnum
         let s:diff_signs[fname] += [id]
         let line = line + 1
       endwhile
@@ -327,14 +342,15 @@ endfunction
 
 
 "
-" Remove all signs we placed earlier 
+" Remove all signs we placed earlier
 "
 
 function! s:Svndiff_clear(...)
   let fname = bufname("%")
-  if exists("s:diff_signs[fname]") 
+  let bufnum = bufnr("%")
+  if exists("s:diff_signs[fname]")
     for id in s:diff_signs[fname]
-      exec 'sign unplace ' . id . ' file=' . fname
+      exec 'sign unplace ' . id . ' buffer=' . bufnum
     endfor
   end
   let s:diff_blocks[fname] = []
@@ -351,7 +367,7 @@ function! s:Svndiff_prev(...)
   let diff_blocks_reversed = reverse(copy(s:diff_blocks[fname]))
   for block in diff_blocks_reversed
     let line = block.id - s:sign_base
-    if line < line(".") 
+    if line < line(".")
       call setpos(".", [ 0, line, 1, 0 ])
       echom 'svndiff: ' . block.info
       return
@@ -369,7 +385,7 @@ function! s:Svndiff_next(...)
   let fname = bufname("%")
   for block in s:diff_blocks[fname]
     let line = block.id - s:sign_base
-    if line > line(".") 
+    if line > line(".")
       call setpos(".", [ 0, line, 1, 0 ])
       echom 'svndiff: ' . block.info
       return
@@ -409,12 +425,12 @@ function! Svndiff(...)
 
   if cmd == 'clear'
     let s:changedtick[fname] = 0
-    if exists("s:is_active[fname]") 
+    if exists("s:is_active[fname]")
       unlet s:is_active[fname]
     endif
     call s:Svndiff_clear()
   end
-  
+
   if cmd == 'prev'
     let s:is_active[fname] = 1
     let ok = s:Svndiff_update()
@@ -436,10 +452,12 @@ endfunction
 
 " Define sign characters and colors
 
-sign define svndiff_add    text=> texthl=diffAdd
-sign define svndiff_delete text=< texthl=diffDelete
-sign define svndiff_change text=! texthl=diffChange
-
+sign define svndiff_add    text=+ texthl=svnAdd
+sign define svndiff_delete text=- texthl=svnDelete
+sign define svndiff_change text=~ texthl=svnChange
+hi svnAdd    guifg=green  guibg=grey20
+hi svnDelete guifg=red    guibg=grey20
+hi svnChange guifg=yellow guibg=grey20
 
 " Define autocmds if autoupdate is enabled
 
